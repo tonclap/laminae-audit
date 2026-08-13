@@ -15,6 +15,9 @@ Specifically, so that a reader can weigh it:
 - the null control, the adversarial-slice criterion, and the applicability gate were
   proposed by the assistant and accepted by me after seeing them break earlier
   versions of the claim;
+- the claim widened once after publication, on 13.08: two slices run to test an
+  unrelated question both gave C = +8, so `+1/−2` became `±2`. The correction is a dated
+  note in the README rather than an edit of the old numbers;
 - the claim narrowed four times before publication, each time from a check rather than
   from second thoughts: `±1` became `+1/−2` after an adversarially chosen slice broke
   it; a validity domain was added when the same slice failed outright; "two independent
