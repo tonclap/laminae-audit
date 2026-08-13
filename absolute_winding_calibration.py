@@ -6,11 +6,18 @@ yet calibrated" in its own README; constraint-gauge, the external benchmark for
 winding generators, writes "winding may be relative, only differences are scored"
 into its rules. So the offset is measured by nobody. This measures it.
 
-    absolute winding = laminae counted from the umbilicus + 6      (+1 / -2)
+    absolute winding = laminae counted from the umbilicus + 6      (+- 2)
 
 valid over z ~ 3100..15700, with the regression slope as a built-in applicability
 gate: it needs no absolute labels, and at the top of the fit domain (z = 18000) it
 collapses to 0.465 on its own, correctly refusing the slice.
+
+The spread was published as (+1 / -2) on five passing slices; two more inside the same
+domain (z = 3500 and z = 4000) came out at C = +8 on 13.08.2026 and widened it to +-2.
+Those two also showed the gate is necessary rather than sufficient: at z = 3500 the
+slope passes at 1.018 while the second estimator reads +2.8 against the grid search's
++8, so a wide disagreement between the two estimators is itself a reason to distrust
+a slice's constant. See README, "Results".
 
 Ground truth is the 28 PHerc. Paris 4 segments whose names are absolute winding
 intervals (w010-027 ... w128-129) — the numbering the official spiral fit and the rest
