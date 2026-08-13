@@ -11,7 +11,7 @@ scored*. So the offset is measured by nobody and rewarded by nobody.
 This measures it.
 
 ```
-absolute winding = laminae counted outward from the umbilicus + 6      (+1 / −2)
+absolute winding = laminae counted outward from the umbilicus + 6      (± 2)
 ```
 
 valid over z ≈ 3100–15700 — and, the part that makes it usable, **the method tells you
@@ -19,6 +19,13 @@ where it is valid**. The regression slope is computed from the same rays with no
 absolute labels involved; where counting is sound it sits near 1, and at the top of
 the fitted mesh domain it collapses to 0.465 on its own. Read the constant only off
 slices that pass that gate; the tool prints `SLOPE GATE FAILED` when they do not.
+
+> **Correction, 13 August 2026.** This first said `+6 (+1/−2)` on the strength of five
+> passing slices. Two further slices inside the same domain, z = 3500 and z = 4000,
+> both give C = +8, so the spread is wider than first published and the constant is
+> now stated as ±2. The same run showed the slope gate and the second estimator are
+> not redundant — see [Results](#results). Nothing else changed; the published slices
+> reproduce exactly.
 
 ## Run it
 
@@ -92,7 +99,7 @@ match human clicks to sub-voxel median error (0.28–0.63 vx).
 
 ## Results
 
-Six slices spanning 15,000 voxels of scroll height. Two are the edges of the fitted
+Eight slices spanning 15,000 voxels of scroll height. Two are the edges of the fitted
 mesh domain, picked adversarially before the run by a stated criterion —
 labelled-segment point density, flat at ~12,000 points per slice everywhere and
 halving at exactly one place, z = 18000.
@@ -100,24 +107,39 @@ halving at exactly one place, z = 18000.
 | z | slope | r | best C | inside interval | shuffled-label null |
 |---|---|---|---|---|---|
 | 3100 (lower edge) | 1.010 | 0.978 | +4 | 0.172 | 0.052 |
+| 3500 † | 1.018 | 0.992 | **+8** | 0.199 | 0.054 |
+| 4000 † | 1.009 | 0.989 | **+8** | 0.194 | 0.056 |
 | 6000 | 1.061 | 0.983 | +6 | 0.205 | 0.061 |
 | 9000 | 1.070 | 0.990 | +7 | 0.259 | 0.061 |
 | 12000 | 1.014 | 0.995 | +5 | 0.321 | 0.068 |
 | 15694 | 0.978 | 0.983 | +6 | 0.277 | 0.064 |
 | 18000 (upper edge) | **0.465** | **0.574** | +4 | 0.147 | 0.053 |
 
-On the five that pass, counting tracks truth close to 1:1 across 120 windings, so the
-error is an offset rather than accumulating drift. Read `+1/−2` as **the spread of
-observations, not a confidence interval**: across the five passing slices C came out
-+4, +6, +7, +5, +6. The sixth is excluded by its own gate, so its C is not part of the
-range. Four of the six z were round numbers picked by hand; two were picked
-adversarially.
+† added 13 August, after first publication. They were not run to improve the number:
+they were run to test an unrelated question — the published `spiral-input` tracks and
+verified patches all lie in z 4500–17498, so these two slices sit in a band of the fit
+domain that has no surface annotation behind it. The geometry there turned out to be
+fine by the gate, and the constant turned out to be wider than published.
 
-On the sixth it fails, and **the failure is visible without ground truth**: slope
+On the seven that pass, counting tracks truth close to 1:1 across 120 windings, so the
+error is an offset rather than accumulating drift. Read `± 2` as **the spread of
+observations, not a confidence interval**: across the seven passing slices C came out
++4, +8, +8, +6, +7, +5, +6. The eighth is excluded by its own gate, so its C is not
+part of the range. Four of the eight z were picked by hand, two adversarially by the
+point-density criterion, and two by the annotation-coverage boundary.
+
+On the last one it fails, and **the failure is visible without ground truth**: slope
 0.465, r 0.574, band-wise shortfall running away to −50.5 counts with IQR 82. The
 second estimator diverges too (+16.8 against the grid search's +4). This is the top
 row of the `z3000_18000` fit domain, where the segment meshes themselves thin to half
 density.
+
+**The two checks are not redundant, and a passing slope does not imply agreement.**
+At z = 3500 the slope passes comfortably at 1.018 (r 0.992) while the second estimator
+reads +2.8 against the grid search's +8 — a gap of 5.2 counts, ten times the 0.5 seen
+on the published slice. Take a wide disagreement between the two estimators as a
+reason to distrust that slice's constant, even when the slope is clean. This was found
+after publication and is the reason the range widened.
 
 ## Null control
 
@@ -150,7 +172,12 @@ publicly — it looks like the obvious mesh to use.
   unknown degree. The shuffled-label null does not address this: it breaks the
   segment-to-interval association, not common ancestry.
 - **Not a pre-registered gate.** The slope bounds 0.8–1.2 were set after seeing that
-  good slices sit near 1.0 and the broken one at 0.465.
+  good slices sit near 1.0 and the broken one at 0.465. And the gate is necessary,
+  not sufficient: z = 3500 passes it while the two estimators disagree by 5.2 counts.
+- **Not a constant that is uniform inside its domain.** C ranges over 4…8 on the seven
+  slices that pass, and the two extremes are 400 voxels apart in z (3100 and 3500).
+  Eight slices out of a 12,600-voxel domain do not pin down how it varies; they only
+  bound the spread seen so far.
 - **Not a relative-winding method.** Global wrap identity from this prediction was
   attempted three ways and all three failed; connected components are refuted rather
   than merely unsuccessful, since the median geodesic detour within a component is 41×
