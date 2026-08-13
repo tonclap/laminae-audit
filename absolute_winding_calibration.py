@@ -74,6 +74,11 @@ S3 = 'https://vesuvius-challenge-open-data.s3.amazonaws.com/'
 PREDICTION = ('PHercParis4/representations/predictions/surfaces/'
               '20260411134726-surface-20260413141734-surface-recto-2um-ps256-'
               'L0-th0.45.zarr/')
+# The raw scan the prediction was computed on, in the same frame: level 0 is byte-for-
+# byte the same shape as the prediction's, so level 2 is the annotation frame voxel for
+# voxel. Used only to ask whether a sampled point is inside the scan at all — see
+# `ScanMask`.
+CT = 'PHercParis4/volumes/20260411134726-2.400um-0.2m-78keV-masked.zarr/'
 LEVEL = '2'
 SEGMENTS = 'PHercParis4/segments/'
 # The cheap `…-45.532um.tifxyz` mesh is a trap: it is defined on scan 20260310170716,
@@ -95,6 +100,113 @@ DATA_SERVER = 'https://dl.ash2txt.org/datasets/spiral_datasets/PHercParis4/'
 # it falls to 0.465 and the constant must not be read off that slice.
 SLOPE_GATE = (0.8, 1.2)
 NULL_PERMUTATIONS = 200
+
+
+def fetch(url, byte_range=None, timeout=300, attempts=4):
+    """One GET. `None` means a 404 and nothing else.
+
+    A zarr chunk that was never written is legitimately absent and reads as the fill
+    value. Anything else — a timeout, DNS, a 500, a proxy — is not absence, and
+    swallowing it would quietly return a volume of zeros and a confidently wrong
+    constant. That silent-failure shape is the same one this project files bug reports
+    about; it does not belong in its own tool.
+
+    Retrying is not a weakening of that rule, and it earns its place: a single TLS
+    handshake timeout killed two twenty-minute runs during the 13.08 correction work.
+    After `attempts` tries the error is still raised.
+    """
+    request = urllib.request.Request(url)
+    if byte_range:
+        request.add_header('Range', 'bytes=%d-%d' % byte_range)
+    for attempt in range(attempts):
+        try:
+            return urllib.request.urlopen(request, timeout=timeout).read()
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            if attempt == attempts - 1:
+                raise
+        except Exception:                                          # noqa: BLE001
+            if attempt == attempts - 1:
+                raise
+    return None
+
+
+class ScanMask:
+    """Is a point inside the scanned volume at all?
+
+    Added 13.08.2026, and it is a correction rather than a feature. The sampler below
+    filtered mesh points only by the tifxyz invalid marker, so it happily scored points
+    where the fitted segment surfaces run past the edge of the scroll — 21% of the mesh
+    points at z = 15694 and 51% at z = 18000. A ray aimed at a point that is not on the
+    scroll counts the wrong laminae, and that contamination was holding the published
+    regression slope near 1. See README, "Correction, 13 August 2026 (ii)".
+
+    The test is the volume's own: the CT is published as `…-masked.zarr`, so a voxel
+    reading exactly 0 is outside the scan mask. Air *inside* the mask reads around 50,
+    so this rejects only what was never scanned — no tunable threshold is involved.
+    The CT is stored uncompressed, so one z-plane of a chunk is 16 KB of contiguous
+    bytes at a computable offset and a whole slice of points costs a handful of range
+    requests and no decode.
+    """
+
+    def __init__(self, cache, base=CT, level=LEVEL):
+        self.cache, self.base, self.level = cache, base, level
+        os.makedirs(cache, exist_ok=True)
+        meta = json.loads(fetch(f'{S3}{base}{level}/.zarray', timeout=120).decode())
+        if meta['compressor'] is not None or meta['dtype'] != '|u1':
+            raise RuntimeError(f'the CT level is no longer raw uint8, so the byte '
+                               f'offsets below would read garbage: {meta}')
+        self.shape = meta['shape']
+        self.chunk = meta['chunks'][0]
+        self._planes = {}
+
+    def _plane(self, cz, cy, cx, lz):
+        key = (cz, cy, cx, lz)
+        hit = self._planes.get(key)
+        if hit is not None:
+            return hit
+        path = os.path.join(self.cache, f'ct{self.level}_{cz}_{cy}_{cx}_{lz}.bin')
+        if os.path.exists(path):
+            with open(path, 'rb') as handle:
+                buf = handle.read()
+        else:
+            size = self.chunk * self.chunk
+            buf = fetch(f'{S3}{self.base}{self.level}/{cz}/{cy}/{cx}',
+                        (lz * size, lz * size + size - 1), timeout=120)
+            if buf is None:                       # never-written chunk: all fill value
+                buf = bytes(size)
+            elif len(buf) != size:
+                raise RuntimeError(f'short read on CT chunk {cz}/{cy}/{cx}: '
+                                   f'{len(buf)} of {size} bytes')
+            tmp = f'{path}.{os.getpid()}.part'
+            with open(tmp, 'wb') as handle:
+                handle.write(buf)
+            os.replace(tmp, path)
+        plane = np.frombuffer(buf, np.uint8).reshape(self.chunk, self.chunk)
+        self._planes[key] = plane
+        return plane
+
+    def inside(self, points_xyz, workers=16):
+        points = np.asarray(points_xyz, float)
+        index = np.rint(points[:, ::-1]).astype(np.int64)              # xyz -> zyx
+        out = np.zeros(len(index), bool)
+        need = {}
+        for row, (z, y, x) in enumerate(index):
+            if not all(0 <= v < s for v, s in zip((z, y, x), self.shape)):
+                continue
+            need.setdefault((z // self.chunk, y // self.chunk, x // self.chunk,
+                             z % self.chunk), []).append(
+                                 (row, y % self.chunk, x % self.chunk))
+        missing = [key for key in need if key not in self._planes]
+        if len(missing) > 1:
+            with futures.ThreadPoolExecutor(min(workers, len(missing))) as pool:
+                list(pool.map(lambda key: self._plane(*key), missing))
+        for key, items in need.items():
+            plane = self._plane(*key)
+            for row, ly, lx in items:
+                out[row] = plane[ly, lx] > 0
+        return out
 
 
 class Prediction:
@@ -128,17 +240,8 @@ class Prediction:
         if os.path.exists(path):
             with open(path, 'rb') as handle:
                 return handle.read()
-        try:
-            data = urllib.request.urlopen(
-                f'{S3}{self.base}{self.level}/{key}', timeout=300).read()
-        except urllib.error.HTTPError as error:
-            # A zarr chunk that was never written is legitimately absent and reads as
-            # the fill value. Anything else — a timeout, DNS, a 500, a proxy — is not
-            # absence, and swallowing it would quietly return a volume of zeros and a
-            # confidently wrong constant. That silent-failure shape is the same one
-            # this project files bug reports about; it does not belong in its own tool.
-            if error.code != 404:
-                raise
+        data = fetch(f'{S3}{self.base}{self.level}/{key}', timeout=300)
+        if data is None:
             return None
         tmp = f'{path}.{os.getpid()}.part'             # atomic: concurrent fetchers
         with open(tmp, 'wb') as handle:                # must not read a half file
@@ -216,7 +319,7 @@ def load_umbilicus(path, cache_dir):
     cached = os.path.join(cache_dir, 'umbilicus.json')
     if not os.path.exists(cached):
         os.makedirs(cache_dir, exist_ok=True)
-        data = urllib.request.urlopen(DATA_SERVER + 'umbilicus.json', timeout=120).read()
+        data = fetch(DATA_SERVER + 'umbilicus.json', timeout=120)
         tmp = f'{cached}.{os.getpid()}.part'
         with open(tmp, 'wb') as handle:
             handle.write(data)
@@ -278,9 +381,8 @@ def count_to_point(pred, origin, point, threshold=115, step=0.5):
 
 def labelled_segments():
     """The 28 segments whose names are absolute winding intervals."""
-    body = urllib.request.urlopen(
-        f'{S3}?list-type=2&max-keys=1000&delimiter=/&prefix={SEGMENTS}',
-        timeout=60).read().decode()
+    body = fetch(f'{S3}?list-type=2&max-keys=1000&delimiter=/&prefix={SEGMENTS}',
+                 timeout=60).decode()
     # Silently keeping the first page would drop segments and quietly narrow the
     # winding range the constant is fitted over. 81 prefixes today against a 1000 cap.
     if '<IsTruncated>true</IsTruncated>' in body:
@@ -318,8 +420,8 @@ def segment_points(name, cache_dir):
     path = os.path.join(cache_dir, f'{name}.npy')
     if os.path.exists(path):
         return np.load(path)
-    channels = [tifffile.imread(io.BytesIO(urllib.request.urlopen(
-        f'{S3}{SEGMENTS}{name}/{CHEAP_MESH}{channel}.tif', timeout=600).read()))
+    channels = [tifffile.imread(io.BytesIO(fetch(
+        f'{S3}{SEGMENTS}{name}/{CHEAP_MESH}{channel}.tif', timeout=600)))
         for channel in 'xyz']
     points = np.stack(channels, -1).astype(np.float32)
     points = points[~((points[..., 0] == -1) & (points[..., 1] == -1))]
@@ -410,23 +512,42 @@ def main():
     parser.add_argument('--per-segment', type=int, default=16)
     parser.add_argument('--threshold', type=int, default=115)
     parser.add_argument('--step', type=float, default=0.5)
+    parser.add_argument('--no-mask-filter', action='store_true',
+                        help='score mesh points that lie outside the scan mask too. '
+                             'This reproduces the runs published on 12.08.2026, which '
+                             'is the only reason it exists — see ScanMask.')
     parser.add_argument('--out')
     args = parser.parse_args()
 
     os.makedirs(args.mesh_cache, exist_ok=True)
     pred = Prediction(args.cache)
+    mask = None if args.no_mask_filter else ScanMask(args.cache)
     control = load_umbilicus(args.umbilicus, args.cache)
     ux, uy = umbilicus_at(control, args.z)
     origin = np.array([ux, uy, args.z])
-    print(f'z={args.z:.0f} umbilicus=({ux:.0f}, {uy:.0f})', flush=True)
+    print(f'z={args.z:.0f} umbilicus=({ux:.0f}, {uy:.0f})'
+          f'{"  [mask filter OFF]" if mask is None else ""}', flush=True)
 
-    rows, targets = [], []
+    rows, targets, dropped, offered = [], [], 0, 0
     for name, low, high in labelled_segments():
         points = segment_points(name, args.mesh_cache)
         band = points[np.abs(points[:, 2] - args.z) <= args.z_band]
         if len(band) == 0:
             print(f'{name:34s} w{low:03d}-{high:03d}: no points at this z', flush=True)
             continue
+        if mask is not None:
+            # Filter the candidates, not the drawn sample: where a segment still has
+            # on-mask geometry at this z, this keeps the full `--per-segment` sample
+            # instead of thinning it, so segments do not silently lose weight in the
+            # regression just because part of their surface left the scan.
+            keep = mask.inside(band)
+            offered += len(band)
+            dropped += int((~keep).sum())
+            band = band[keep]
+            if len(band) == 0:
+                print(f'{name:34s} w{low:03d}-{high:03d}: every mesh point at this z '
+                      f'is outside the scan mask; segment skipped', flush=True)
+                continue
         # Seeded per segment, not once for the run: adding or removing a segment
         # then leaves every other segment's sample untouched, so results stay
         # comparable across runs that see a different set.
@@ -442,6 +563,10 @@ def main():
     # and taking them together is what makes a bounded cache work. Measured on the
     # z=18000 slice with everything already on disk: 535 s segment-by-segment, where
     # nothing was downloaded and the whole cost was re-decoding evicted chunks.
+    if mask is not None and offered:
+        print(f'scan mask: {dropped} of {offered} candidate mesh points at this z '
+              f'({dropped / offered:.1%}) lie outside the scanned volume and were not '
+              f'scored', flush=True)
     targets.sort(key=lambda item: np.arctan2(item[1][1] - uy, item[1][0] - ux))
     for done, (row_index, point) in enumerate(targets, 1):
         rows[row_index]['counts'].append(

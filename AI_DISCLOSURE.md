@@ -12,18 +12,21 @@ Specifically, so that a reader can weigh it:
 
 - the assistant wrote the streaming zarr reader, the counting code and the statistics,
   and ran every measurement quoted in this repository;
-- the null control, the adversarial-slice criterion, and the applicability gate were
-  proposed by the assistant and accepted by me after seeing them break earlier
-  versions of the claim;
-- the claim widened once after publication, on 13.08: two slices run to test an
-  unrelated question both gave C = +8, so `+1/−2` became `±2`. The correction is a dated
-  note in the README rather than an edit of the old numbers;
-- the claim narrowed four times before publication, each time from a check rather than
-  from second thoughts: `±1` became `+1/−2` after an adversarially chosen slice broke
-  it; a validity domain was added when the same slice failed outright; "two independent
-  ground truths" became one truth propagated by the spiral fit, once its documented
-  input list was read; and "a point gets its exact absolute number" became "lands
-  inside an interval 2 to 18 windings wide". Two of the four came from independent
-  review passes rather than from the assistant or me;
-- no figure in the README is reproduced from memory: `absolute_winding_calibration.py`
-  prints all of them, and the expected output is quoted in full.
+- the null control and the adversarial-slice criterion were proposed by the assistant
+  and accepted by me after seeing them break earlier versions of the claim;
+- **the largest correction came the same way.** This repository was published on
+  12 August as a winding calibration. Measurement on 13–14 August withdrew the
+  applicability gate, withdrew "the error is an offset, not a drift", and narrowed the
+  constant to a domain — and then showed the mechanism underneath, which is now the
+  subject of the repository. Each of those was a measurement with a baseline beside it,
+  not a change of mind. The record is in `CORRECTION.md`; the history was kept public
+  rather than rewritten, and the repository was renamed rather than replaced;
+- the pre-registration in `protocol_run.py` — five heights per scroll fixed by
+  quantiles of the data, 24 rays, every height published whatever it says — was written
+  and committed before the run it describes, because the previous version of this work
+  had been vulnerable to slice picking;
+- no figure in this README is reproduced from memory or typed by hand: `protocol_run.py`
+  writes one JSON per slice and `protocol_summary.py` and `offmask_check.py` read those
+  into the published tables. That rule exists because three rows of the *original*
+  results table turned out to have come from a script that was never shipped — see
+  `CORRECTION.md`, item 5.

@@ -1,192 +1,195 @@
-# Absolute winding calibration for PHerc. Paris 4
+# laminae-audit — how well does a surface prediction resolve single laminae?
 
-Winding fields recovered from CT are relative: they get the *differences* between
-windings right and leave the origin unknown. Both sides of the current toolchain say
-so — winding-sync's README calls absolute counts "not yet calibrated", and its entry
-in villa's community-projects page repeats that verbatim; constraint-gauge, the
-external benchmark that scores winding-constraint generators, writes the complementary
-rule into its submission criteria: *winding may be relative, only differences are
-scored*. So the offset is measured by nobody and rewarded by nobody.
+> This repository was published on 12 August 2026 as **absolute-winding**, and most of
+> what it claimed then has since been withdrawn by measurement. The record is in
+> [CORRECTION.md](CORRECTION.md), and the history is intact rather than rewritten. What
+> follows is what survived: not the calibration, but the measurement that showed the
+> calibration was weak.
 
-This measures it.
+A surface prediction is a mask over the scan volume. Everything downstream — tracing,
+`fit_spiral.py`, the winding fields — assumes it separates neighbouring sheets of
+papyrus, and that assumption is usually reported as a segmentation score against
+annotated surfaces. That score answers "is the predicted surface in the right place".
+It does not answer the question the spiral machinery actually depends on:
+
+**between two annotated sheets, does the prediction show exactly one sheet?**
+
+This measures that, on both scrolls that publish absolute winding labels, with a
+baseline beside every number.
 
 ```
-absolute winding = laminae counted outward from the umbilicus + 6      (± 2)
+resolving power = share of gaps between neighbouring labelled sheets
+                  that contain exactly one run of predicted surface
 ```
 
-valid over z ≈ 3100–15700 — and, the part that makes it usable, **the method tells you
-where it is valid**. The regression slope is computed from the same rays with no
-absolute labels involved; where counting is sound it sits near 1, and at the top of
-the fitted mesh domain it collapses to 0.465 on its own. Read the constant only off
-slices that pass that gate; the tool prints `SLOPE GATE FAILED` when they do not.
+## The result
 
-> **Correction, 13 August 2026.** This first said `+6 (+1/−2)` on the strength of five
-> passing slices. Two further slices inside the same domain, z = 3500 and z = 4000,
-> both give C = +8, so the spread is wider than first published and the constant is
-> now stated as ±2. The same run showed the slope gate and the second estimator are
-> not redundant — see [Results](#results). Nothing else changed; the published slices
-> reproduce exactly.
+| scroll | prediction | gaps | one run | same runs at random | ratio |
+|---|---|---|---|---|---|
+| PHerc0139 | `m7-L0-th0.2` | 3 734 | **51.1%** | 26.8% | **1.90×** |
+| PHerc. Paris 4 | `recto-2um-ps256-L0-th0.45` | 14 310 | **52.3%** | 32.2% | **1.63×** |
+
+A prediction that resolved exactly the annotated sheets would put 100% in the "one run"
+column. A prediction indifferent to where the sheets are would match the random column,
+which takes the same number of runs found on that ray and scatters them along the same
+stretch of it.
+
+So: **about half the gaps are resolved correctly, at 1.6–1.9× chance.** Of the rest, a
+gap holds no run at all in 26.7% of cases on Paris 4 and 32.8% on PHerc0139 — a merge
+or a miss — and two or more in 20.9% and 16.1%.
+
+The two scrolls agree while sharing almost nothing: different model, different
+threshold, different scan, different voxel grid, and on PHerc0139 there is no published
+umbilicus, so the centre of counting is fitted to the innermost annotated turn instead.
+
+### It depends strongly on how far out you are
+
+Rows below are copied from the generated tables, not recomputed by hand — see
+[OFFMASK_CHECK.md](OFFMASK_CHECK.md) for the same numbers with the dropped-gap counts.
+
+| windings | Paris 4, all gaps | on-scan only | vs random |
+|---|---|---|---|
+| 10–20 | 57.7% | 57.7% | 1.79× |
+| 20–30 | 67.3% | 67.3% | 2.09× |
+| 30–40 | 67.1% | 67.1% | 2.08× |
+| 40–50 | 61.2% | 61.2% | 1.90× |
+| 50–60 | 59.2% | 59.2% | 1.84× |
+| 60–70 | 57.8% | 57.8% | 1.80× |
+| 70–80 | 52.9% | 52.9% | 1.64× |
+| 80–90 | 54.4% | 54.8% | 1.70× |
+| 90–100 | 49.3% | 51.7% | 1.61× |
+| 100–110 | 40.7% | 46.2% | 1.44× |
+| 110–120 | 36.9% | 44.2% | 1.37× |
+| 120–130 | 21.1% | 26.4% | **0.82×** |
+
+Resolving power roughly halves between the inner and outer half of the scroll, and in
+the outermost band it drops **below chance** — the prediction there does not merely
+miss sheets, it places runs where the annotated sheets are not.
+
+The "on-scan only" column exists because part of that decline is not the prediction's
+fault: the published segment meshes run past the edge of the scanned volume in the
+outer windings (0.0% of gaps out to winding 80, 23.9% on 120–130), and a rung of the
+ladder in unscanned volume is not a sheet anyone could have predicted. Dropping every
+gap that touches unscanned volume recovers about a third of the outer decline and
+leaves the rest standing. Full tables: [OFFMASK_CHECK.md](OFFMASK_CHECK.md).
+
+PHerc0139's annotations cover windings 23–59 only, which is inside Paris 4's healthy
+region, and there it behaves the same (1.64–2.11×). **The outer collapse is therefore a
+Paris 4 statement**; the second scroll has no labels out there to test it with.
+
+## The protocol, fixed before the run
+
+The failure mode this design is built against is picking the slice that makes the point.
+The protocol was written down and committed before any of it ran, and
+[`protocol_run.py`](protocol_run.py) *is* that protocol:
+
+1. **heights** — five equidistant quantiles of the z-range the labelled meshes actually
+   cover, read off the data, endpoints excluded. Not chosen, not adjustable;
+2. **rays** — 24 at equal angles, a fixed set;
+3. **every** height and **both** scrolls are published, whatever comes out. A slice that
+   fails to run appears in the table as a failed row rather than disappearing;
+4. **a baseline beside every number**, from the same run;
+5. **every published number comes out of the shipped code.** `protocol_run.py` writes
+   one JSON per slice; `protocol_summary.py` reads those into the tables. Nothing is
+   typed by hand — which is exactly what went wrong in the first version of this
+   repository (see [CORRECTION.md](CORRECTION.md), item 5).
+
+Slice-by-slice results: [PROTOCOL_RESULTS.md](PROTOCOL_RESULTS.md).
+
+## How it works
+
+At one height, for one ray from the centre outward:
+
+- **the ladder.** Each published segment mesh is a curve at that height; intersecting
+  the ray with it gives a crossing, and each crossing carries its winding number,
+  interpolated along the mesh. Neighbouring crossings bound one gap.
+- **the prediction.** Sample the mask along the same ray at 0.5 voxel steps and count
+  rising edges. Each maximal run of mask is one predicted lamina.
+- **the question.** How many rising edges fall strictly inside each gap.
+- **the baseline.** Take the same number of runs, scatter them uniformly along the same
+  stretch of ray, ask the same question, repeat 200 times.
+
+Two prior questions had to be settled first, and both are checks the code runs every
+time rather than assumptions:
+
+- **is the reference sound?** Each mesh must span exactly the turns its name claims.
+  Paris 4's do, to within 0.2%. PHerc0139's single-winding meshes overrun a full turn
+  by a median 4–8% — neighbouring annotations deliberately overlap — so the gate is
+  one-sided: a mesh must cover at least 0.95 of its named turns and may cover more.
+  Two PHerc0139 meshes (w035, w050) cover 0.76 and 0.44 and are excluded by name in
+  every run.
+- **can a ray count windings at all?** If the scroll is out of round, a ray could cross
+  the same sheet twice and no counter would return the winding number. Tested without
+  the prediction, by intersecting rays with the meshes alone: on Paris 4, 120 crossings
+  for the 120 windings spanned, median excess −0.4%. On PHerc0139 the overlap above
+  shows up here as a median excess of −5.1% and about two non-monotone crossings per
+  ray. [`ray_vs_mesh.py`](ray_vs_mesh.py).
 
 ## Run it
 
 ```bash
 pip install -r requirements.txt
-python absolute_winding_calibration.py --cache ./chunks --mesh-cache ./meshes
+
+# the whole pre-registered run: 10 slices, resumable, ~1.6 GB over the network
+python protocol_run.py --cache-root ./cache --grid-cache ./cache/grids
+
+# tables out of the slices it wrote
+python protocol_summary.py --slices ./cache/protocol --out PROTOCOL_RESULTS.md
+python offmask_check.py --slices ./cache/protocol --cache-root ./cache \
+    --grid-cache ./cache/grids --out OFFMASK_CHECK.md
+
+# one slice on its own, with the full per-ray printout
+python runs_per_winding.py --scroll PHerc0139 --cache ./cache/cache0139 \
+    --grid-cache ./cache/grids --z 5026 --rays 24
+
+# what a scroll's layout looks like, and the checks that license the reference
+python scrolls.py --scroll PHerc0139 --cache ./cache/cache0139 --grid-cache ./cache/grids
+python mesh_winding.py --scroll PHerc0139 --cache ./cache/cache0139 --grid-cache ./cache/grids
 ```
 
-No credentials, no GPU, no bulk download, no arguments beyond two scratch directories.
-Expect this:
+CPU and network only, no credentials, public data throughout. Each slice is cached as
+JSON and reused, so an interrupted run costs the slice it was on and nothing else — one
+of the ten slices died on a dropped connection during the published run and was
+recovered by re-running the same command.
 
-```
-segments 28  slope 0.978  intercept -3.5  r 0.983
-per-point (448 points): best constant C = +6  inside 0.277  +-1 0.364  +-2 0.435
-  C=0 baseline: inside 0.210
-  second estimator (slope fixed at 1, median offset): +5.5  against the grid search's +6
-  windings  18- 55: n= 80  median offset -5.5  iqr 5.0
-  windings  61-102: n=192  median offset -5.0  iqr 8.0
-  windings 105-128: n=176  median offset -5.0  iqr 20.0
-shuffled-label null: mean 0.064  p95 0.094  max 0.118
-```
-
-`--z 18000` shows the gate refusing a slice. `--out results.json` writes the same
-figures plus every per-point count.
-
-**Inputs come from two different hosts**, which is not guessable and cost this project
-an afternoon: the surface prediction and the segment meshes stream from the S3 bucket
-`vesuvius-challenge-open-data`, while the umbilicus is fetched from the data server
-`dl.ash2txt.org` as part of the spiral-input dataset. That bucket has no `datasets/`
-prefix at all, so the annotation corpus is not there.
-
-## Ground truth: one source, propagated
-
-The truth is the 28 PHerc. Paris 4 segments whose names *are* absolute winding
-intervals — `…-w010-027` through `…-w128-129`, covering windings 10 to 129
-continuously. The naming is documented rather than inferred: villa's spiral tutorial
-shows `meshes/mesh/w010/ # one tifxyz mesh per winding` and describes `render_ink.py`
-grouping them into ranges named `w010-027`. Median offset **−5.5**.
-
-`abs_winding.json` — 59 hand-placed absolute winding numbers — gives **−7**.
-
-**These are not two independent measurements, and the direction matters.** The spiral
-fit takes absolute winding annotations as an *input*, and no other input it consumes
-(patches, fibers, relative annotations, predicted normals, tracks, the umbilicus, the
-outer shell) carries an absolute number. So the fit's absolute numbering can only have
-come from those 59 labels, and the segment names are those labels propagated across
-windings 10–129. There is **one** absolute ground truth; the −7 / −5.5 pair is the raw
-labels against the fit's spread of them. What is independent is the counting side: it
-uses neither.
-
-## Method
-
-On a z-slice, cast a ray from the umbilicus to a mesh point of a labelled segment and
-count runs of the binary surface prediction (`…-recto-2um-ps256-L0-th0.45.zarr`,
-pyramid level 2 — the frame the annotations live in). Regress counted against the
-segment's own winding interval. Segment geometry comes from
-`mesh/intermediate/tifxyz_original/`, which is in the prediction's frame.
-
-The local step is the part known to be accurate: on short rays, threshold crossings
-match human clicks to sub-voxel median error (0.28–0.63 vx).
-
-**Counting conventions**, since the whole result is one integer:
-
-- a lamina is a maximal run at or above `--threshold`; a run already in progress at
-  the first sample counts (rays start at the umbilicus, which is not inside a lamina,
-  so this does not fire here — but it would for a different origin);
-- the ray runs from the umbilicus control point, not from the first lamina, and the
-  lamina containing the target is counted;
-- winding numbers follow the segment names, which are 1-based: `w010` is the tenth
-  winding.
-
-## Results
-
-Eight slices spanning 15,000 voxels of scroll height. Two are the edges of the fitted
-mesh domain, picked adversarially before the run by a stated criterion —
-labelled-segment point density, flat at ~12,000 points per slice everywhere and
-halving at exactly one place, z = 18000.
-
-| z | slope | r | best C | inside interval | shuffled-label null |
-|---|---|---|---|---|---|
-| 3100 (lower edge) | 1.010 | 0.978 | +4 | 0.172 | 0.052 |
-| 3500 † | 1.018 | 0.992 | **+8** | 0.199 | 0.054 |
-| 4000 † | 1.009 | 0.989 | **+8** | 0.194 | 0.056 |
-| 6000 | 1.061 | 0.983 | +6 | 0.205 | 0.061 |
-| 9000 | 1.070 | 0.990 | +7 | 0.259 | 0.061 |
-| 12000 | 1.014 | 0.995 | +5 | 0.321 | 0.068 |
-| 15694 | 0.978 | 0.983 | +6 | 0.277 | 0.064 |
-| 18000 (upper edge) | **0.465** | **0.574** | +4 | 0.147 | 0.053 |
-
-† added 13 August, after first publication. They were not run to improve the number:
-they were run to test an unrelated question — the published `spiral-input` tracks and
-verified patches all lie in z 4500–17498, so these two slices sit in a band of the fit
-domain that has no surface annotation behind it. The geometry there turned out to be
-fine by the gate, and the constant turned out to be wider than published.
-
-On the seven that pass, counting tracks truth close to 1:1 across 120 windings, so the
-error is an offset rather than accumulating drift. Read `± 2` as **the spread of
-observations, not a confidence interval**: across the seven passing slices C came out
-+4, +8, +8, +6, +7, +5, +6. The eighth is excluded by its own gate, so its C is not
-part of the range. Four of the eight z were picked by hand, two adversarially by the
-point-density criterion, and two by the annotation-coverage boundary.
-
-On the last one it fails, and **the failure is visible without ground truth**: slope
-0.465, r 0.574, band-wise shortfall running away to −50.5 counts with IQR 82. The
-second estimator diverges too (+16.8 against the grid search's +4). This is the top
-row of the `z3000_18000` fit domain, where the segment meshes themselves thin to half
-density.
-
-**The two checks are not redundant, and a passing slope does not imply agreement.**
-At z = 3500 the slope passes comfortably at 1.018 (r 0.992) while the second estimator
-reads +2.8 against the grid search's +8 — a gap of 5.2 counts, ten times the 0.5 seen
-on the published slice. Take a wide disagreement between the two estimators as a
-reason to distrust that slice's constant, even when the slope is clean. This was found
-after publication and is the reason the range widened.
-
-## Null control
-
-Every hit rate is reported against the same statistic with the labels destroyed — each
-segment's winding interval reassigned to another segment, 200 permutations, all
-marginals preserved, and the best constant re-selected *inside* each permutation so
-the grid search is charged for. The null lands at **0.064** (p95 0.094, max 0.118)
-against a measured 0.277. Leaving the offset out entirely scores 0.210.
-
-This control exists because an earlier version of this work produced a beautiful peak
-at exactly the expected value that turned out to be nothing: fitting a scale factor
-for the cheap `…-45.532um.tifxyz` mesh peaked at the nominal 4.75, at 0.244 on-mask
-against a random-cloud baseline of 0.241. That mesh is defined on scan
-20260310170716, a different scan from the prediction's 20260411134726. Worth naming
-publicly — it looks like the obvious mesh to use.
+Adding a third scroll is a `Scroll(...)` entry in [`scrolls.py`](scrolls.py): the
+prediction and CT paths, the pyramid level whose voxel grid the meshes are written in,
+the segment naming pattern, and where the centre of counting comes from. Every field is
+a fact that can be checked against the data server, and getting one wrong produces an
+error rather than a plausible number — the level in particular, which on Paris 4 is 2
+and on PHerc0139 is 0.
 
 ## What this is not
 
-- **Not per-point winding identification.** Dispersion grows outward: the per-point
-  offset IQR runs 5 → 8 → 20 counts across windings 10–60, 60–105 and 105–129. And
-  "gets it right" is weaker than it sounds — a point is scored against its segment's
-  *interval*, 2 windings wide for `w116-117` but 18 wide for `w010-027`. On that
-  generous test a point lands inside 20–32% of the time. The per-point absolute number
-  is not recovered at all; the offset of the field is.
-- **Not two independent ground truths.** See above: one source and its propagation.
-- **Not free of shared ancestry.** The fit also consumes machine-derived inputs —
-  lasagna normals, skeletonised surface-prediction tracks — so the geometry the
-  segments sit on is not wholly independent of the prediction this counts laminae in.
-  The absolute origin is unaffected, but per-point agreement is flattered to an
-  unknown degree. The shuffled-label null does not address this: it breaks the
-  segment-to-interval association, not common ancestry.
-- **Not a pre-registered gate.** The slope bounds 0.8–1.2 were set after seeing that
-  good slices sit near 1.0 and the broken one at 0.465. And the gate is necessary,
-  not sufficient: z = 3500 passes it while the two estimators disagree by 5.2 counts.
-- **Not a constant that is uniform inside its domain.** C ranges over 4…8 on the seven
-  slices that pass, and the two extremes are 400 voxels apart in z (3100 and 3500).
-  Eight slices out of a 12,600-voxel domain do not pin down how it varies; they only
-  bound the spread seen so far.
-- **Not a relative-winding method.** Global wrap identity from this prediction was
-  attempted three ways and all three failed; connected components are refuted rather
-  than merely unsuccessful, since the median geodesic detour within a component is 41×
-  the direct distance — the papyrus is one physically continuous spiral. Relative
-  winding is winding-sync's job, and constraint-gauge measures it.
-- **One scroll.** PHerc. Paris 4 is the only scroll with published absolute labels, so
-  C is a Paris 4 number. The method should transfer; the constant is not claimed to.
+- **Not a segmentation score.** It says nothing about whether the predicted surface is
+  in the right place; it asks only whether neighbouring annotated sheets are separated.
+  A prediction can score well here and be misplaced, or score badly here and be
+  perfectly placed but merged.
+- **Not a claim about ink or about downstream quality.** Whether 1.63× is good enough
+  for `fit_spiral.py` is a question for the people who run it; this supplies the number,
+  not the verdict.
+- **Not a calibration.** The absolute-winding constant that this repository originally
+  claimed is withdrawn to a narrow range and domain — see
+  [CORRECTION.md](CORRECTION.md).
+- **Not a large sample of scrolls.** Two, because two are all that publish absolute
+  winding labels. PHercMANBp has winding-named segments but no confirmed mesh in the
+  prediction's frame; PHerc0172 and PHerc1667 have the names but no prediction zarr.
+
+## What was tried and did not survive
+
+Kept because a negative result measured properly is worth more than a positive one
+asserted:
+
+- **"the method knows where it is invalid"** (a slope gate) — no instance of it firing
+  survived the mask fix;
+- **"the error is an offset, not a drift"** — true only over windings 10–70;
+- **"the radial ray is the problem"** — refuted by geometry with no prediction in it;
+- **"the prediction shows a sheet within a few voxels of 86–95% of annotated sheets"** —
+  killed by its own baseline: a random radius on the same ray scores 84–92%. That test
+  has almost no resolving power, and it is reported here only next to its baseline
+  (88.4% against 85.2% on Paris 4; 90.9% against 85.0% on PHerc0139).
 
 ## Licence and disclosure
 
-MIT, see `LICENSE`. AI assistance is disclosed in `AI_DISCLOSURE.md` as villa's
-submission policy requires.
+MIT, see [LICENSE](LICENSE). Written with AI assistance under human direction and
+review; see [AI_DISCLOSURE.md](AI_DISCLOSURE.md).
