@@ -1,3 +1,4 @@
 numpy==2.2.6
 numcodecs==0.13.1
 tifffile==2023.8.12
+matplotlib==3.10.9
