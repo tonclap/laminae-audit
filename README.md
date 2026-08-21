@@ -171,9 +171,20 @@ and on PHerc0139 is 0.
 - **Not a calibration.** The absolute-winding constant that this repository originally
   claimed is withdrawn to a narrow range and domain — see
   [CORRECTION.md](CORRECTION.md).
-- **Not a large sample of scrolls.** Two, because two are all that publish absolute
-  winding labels. PHercMANBp has winding-named segments but no confirmed mesh in the
-  prediction's frame; PHerc0172 and PHerc1667 have the names but no prediction zarr.
+- **Not a large sample of scrolls.** Two — but as of 21 August 2026 that is a choice,
+  not a limit of the data. PHercMANBp publishes eleven winding-named segments (w0–w8)
+  and a `tifxyz_original` mesh for every one of them, and those meshes are usable: they
+  are written in the **scan's full-resolution frame** (17148 × 12577 × 12577 at
+  2.399 µm), while the scroll's `m7-L2-th0.2` prediction lives on **level 2** of the
+  same scan, so the two are related by an explicit factor of 4. The earlier wording
+  here — "no confirmed mesh in the prediction's frame" — was withdrawn once that was
+  measured; see item 8 of [CORRECTION.md](CORRECTION.md) for the numbers. The scroll is
+  still not in the tables, and the reason is now a different one: this code carries one
+  pyramid level per scroll (`Scroll.level` in `scrolls.py`), the conversion is not in
+  it, and the change was not made to code that had already produced published numbers.
+  PHerc0172 and PHerc1667 have the winding names but publish no surface prediction —
+  `representations/predictions/surfaces/` is empty for both (checked 21 August 2026;
+  PHerc1667 does publish a `lasagna` cosine volume, which is a different thing).
 
 ## What was tried and did not survive
 

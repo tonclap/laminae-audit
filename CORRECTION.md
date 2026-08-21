@@ -85,3 +85,39 @@ is 0.0% out to winding 80, then 1.7%, 7.6%, 14.3%, 17.3%, and **23.9% on winding
 This is a property of the published segment meshes — they run past the edge of the
 scanned volume in the outer windings — not of the prediction. `offmask_check.py`
 measures it and `OFFMASK_CHECK.md` reports it band by band.
+
+## 8. Added 21 August: "no confirmed mesh in the prediction's frame" was wrong about PHercMANBp
+
+`README.md` explained the two-scroll sample by saying that PHercMANBp "has
+winding-named segments but no confirmed mesh in the prediction's frame". That was an
+inference from directory naming, not a measurement: the segments carry
+`mesh/intermediate/tifxyz_original/` rather than the `…-on-<scan>.tifxyz` form that
+states its frame in the name, so the frame was recorded as unconfirmed and the scroll
+was set aside.
+
+Measured instead, the frame is unambiguous. Mesh coordinates are `(x, y, z)` in the
+**full-resolution** scan grid `20251216152116-2.399um` (17148 × 12577 × 12577); the
+prediction `m7-L2-th0.2` is computed on **level 2** of that scan (4287 × 3145 × 3145),
+so mesh coordinates divided by 4 land in it. Two segments, sampled mesh nodes against a
+random baseline drawn uniformly from the same bounding box:
+
+| segment | reading | mesh median CT | mesh > 80 | baseline median | baseline > 80 |
+|---|---|---|---|---|---|
+| w0 (166 682 nodes, 200 sampled) | scan level 0, as published | 110.5 | 0.720 | 0.0 | 0.045 |
+| w0 | prediction, coordinates ÷ 4 | 255 | 0.690 | 0.0 | 0.275 |
+| w8 (16 195 nodes, 120 sampled) | scan level 0, as published | 99.0 | 0.642 | 0.0 | 0.125 |
+| w8 | prediction, coordinates ÷ 4 | 255 | 0.583 | 0.0 | 0.150 |
+
+All eleven segments ship the mesh directory (checked the same day). The baseline is a
+weak one — a uniform point in the bounding box is nearly always air, which is why its
+median is 0.0 — so it separates the CT reading cleanly and the prediction reading less
+cleanly. It is enough for the question that was asked, which is *which frame*, and not
+enough to say how well the prediction covers this scroll; that number is not claimed
+here.
+
+What does not change: PHercMANBp is still not in the tables of `README.md`. The reason
+is now stated as what it is — this code carries one pyramid level per scroll, mesh and
+prediction share it on both scrolls that are in the tables, and PHercMANBp would need a
+conversion that the shipped code does not have. That edit was not made to code which
+had already produced published numbers, ten days before a submission deadline. The
+withdrawn sentence is the claim; the scroll count is unchanged.
